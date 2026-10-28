@@ -79,3 +79,25 @@ both_count = final_table[
 ].shape[0]
 
 print(f"{both_count} students have done BOTH LMS and video activity after deregistration")
+
+# --- New table: remove rows that have access_date but NO video_access_date ---
+final_table = dereg_table[
+    ~(dereg_table["access_date"].notna() & dereg_table["video_access_date"].isna())
+].copy()
+
+print(final_table)
+
+# --- Summary ---
+both_count = final_table[
+    final_table["access_date"].notna() & final_table["video_access_date"].notna()
+].shape[0]
+
+print(f"{both_count} students have done BOTH LMS and video activity after deregistration")
+
+# --- New table: students with EITHER access_date or video_access_date present ---
+any_activity_table = dereg_table[
+    dereg_table["access_date"].notna() | dereg_table["video_access_date"].notna()
+].copy()
+
+print(any_activity_table)
+print(f"{len(any_activity_table)} students have activity on LMS and/or video after deregistration")
