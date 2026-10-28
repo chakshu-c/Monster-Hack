@@ -1,0 +1,37 @@
+print("Starting...")
+import pandas as pd
+
+folder = r"C:\Users\chaks\Downloads\OneDrive_8_28-10-2026"
+
+print("Loading...")
+lms   = pd.read_csv(folder + r"\la_mmh_training_lms_item_activity_by_session_fact.csv",
+                    usecols=["P_ID", "TIMESTAMP", "LMS_ITEM_ID"], dtype={"LMS_ITEM_ID": str})
+video = pd.read_csv(folder + r"\la_mmh_training_video_activity_by_view_fact.csv",
+                    usecols=["P_ID", "TIMESTAMP", "VIDEO_ID"])
+
+# One combined table: student, time, which item/video
+lms["item"]   = "LMS_" + lms["LMS_ITEM_ID"]
+video["item"] = "VID_" + video["VIDEO_ID"]
+activity = pd.concat([lms[["P_ID", "TIMESTAMP", "item"]], video[["P_ID", "TIMESTAMP", "item"]]])
+activity["time"] = pd.to_datetime(activity["TIMESTAMP"], format="ISO8601").dt.tz_localize(None)
+print("Loaded", len(activity), "rows")
+
+def find_web_crawlers(activity, limit=200):
+    # Put every row into its 12-hour block (00:00-12:00 or 12:00-24:00)
+    activity["block"] = activity["time"].dt.floor("12h")
+
+    # For each student and each block: how many DIFFERENT items/videos?
+    per_block = activity.groupby(["P_ID", "block"])["item"].nunique().reset_index(name="items_in_block")
+
+    # Each student's busiest block
+    busiest = per_block.sort_values("items_in_block", ascending=False).drop_duplicates("P_ID")
+    print("Top 10 busiest 12h blocks:")
+    print(busiest.head(10))
+
+    return busiest[busiest["items_in_block"] > limit]
+
+crawlers = find_web_crawlers(activity)
+print(crawlers)
+print("Number of web crawlers:", len(crawlers))
+crawlers[["P_ID"]].assign(Monster="Web Crawler").to_csv(folder + r"\webcrawlers.csv", index=False)
+print("Saved webcrawlers.csv")
