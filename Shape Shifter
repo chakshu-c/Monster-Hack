@@ -1,0 +1,50 @@
+print("Starting...")
+import pandas as pd
+
+folder  = r"C:\Users\chaks\Downloads\OneDrive_8_28-10-2026"   # Training files
+general = r"C:\Users\chaks\Downloads\OneDrive_5_28-10-2026"   # dimension files - CHANGE if different
+
+print("Loading...")
+lms   = pd.read_csv(folder + r"\la_mmh_training_lms_item_activity_by_session_fact.csv",
+                    usecols=["PIT_ID", "P_ID", "LMS_ITEM_ID"], dtype={"LMS_ITEM_ID": str})
+video = pd.read_csv(folder + r"\la_mmh_training_video_activity_by_view_fact.csv",
+                    usecols=["PVT_ID", "P_ID", "VIDEO_ID"])
+registrations = pd.read_csv(folder + r"\la_mmh_training_person_module_instance_fact.csv")
+
+modules = pd.read_csv(general + r"\la_mmh_module_instance_dim.csv")
+items   = pd.read_csv(general + r"\la_mmh_lms_item_dim.csv", dtype={"LMS_ITEM_ID": str})
+videos  = pd.read_csv(general + r"\la_mmh_video_dim.csv")
+print("Loaded")
+
+# ---------- 1. Which module (and department) does each activity row belong to? ----------
+lms = lms.merge(items[["LMS_ITEM_ID", "MODULE_INSTANCE_ID"]], on="LMS_ITEM_ID", how="left")
+video = video.merge(videos[["VIDEO_ID", "MODULE_INSTANCE_ID"]], on="VIDEO_ID", how="left")
+lms["row_id"] = lms["PIT_ID"]
+video["row_id"] = video["PVT_ID"]
+activity = pd.concat([lms[["P_ID", "row_id", "MODULE_INSTANCE_ID"]],
+                      video[["P_ID", "row_id", "MODULE_INSTANCE_ID"]]])
+activity = activity.merge(modules[["MODULE_INSTANCE_ID", "DEPARTMENT_ID"]], on="MODULE_INSTANCE_ID", how="left")
+
+# ---------- 2. Which departments is each student registered in? ----------
+reg = registrations.merge(modules[["MODULE_INSTANCE_ID", "DEPARTMENT_ID"]], on="MODULE_INSTANCE_ID")
+registered = set(zip(reg["P_ID"], reg["DEPARTMENT_ID"]))
+
+# ---------- 3. Flag activity in a department they are NOT registered in ----------
+activity["outside_dept"] = [(p, d) in registered for p, d in zip(activity["P_ID"], activity["DEPARTMENT_ID"])]
+activity["outside_dept"] = ~activity["outside_dept"] & activity["DEPARTMENT_ID"].notna()
+activity["copy_row"] = activity["row_id"].astype(str).str.contains("_COPY_")
+
+# ---------- 4. Summarise per student ----------
+def find_shapeshifters(activity):
+    summary = activity.groupby("P_ID").agg(rows=("row_id", "size"),
+                                           outside_rows=("outside_dept", "sum"),
+                                           copy_rows=("copy_row", "sum"))
+    summary = summary[summary.index.isin(reg["P_ID"])]      # ignore students with no registrations
+    summary["outside_share"] = summary["outside_rows"] / summary["rows"]
+    return summary[summary["copy_rows"] > 0].sort_values("copy_rows", ascending=False)
+
+shapeshifters = find_shapeshifters(activity)
+print(shapeshifters)
+print("Number of shape-shifters:", len(shapeshifters))
+shapeshifters.reset_index()[["P_ID"]].assign(Monster="Shape-shifter").to_csv(folder + r"\shapeshifters.csv", index=False)
+print("Saved shapeshifters.csv")
